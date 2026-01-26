@@ -11,6 +11,8 @@ MTKClient is the work of [bkerler]((https://github.com/bkerler) and all of its c
 
 This is a GUI where you just click "Start Installation" and wait. If you face any errors, copy the debug log (or just get the .log file from &TEMP&) and create an issue here. Do NOT create an issue on the MTKClient repository.
 
+<img width="982" height="792" alt="mtkclient_installer_windows_giTSWjd6PB" src="https://github.com/user-attachments/assets/a7274e90-1996-4195-bb04-7df5a24a67ec" />
+
 # Donations
 
 I'm always up for a coffee. However, please consider supporting MTKClient itself directly if you're interested in the low-level side of things. If you still have a few bucks to spare, thanks a lot for any amount.
