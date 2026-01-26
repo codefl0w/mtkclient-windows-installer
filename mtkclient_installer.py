@@ -1292,7 +1292,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         about_text = """
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> V1.0.0 (260120262136)<br>
+            <b>Version:</b> V1.0.3 (260120262222)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
@@ -1541,16 +1541,22 @@ class InstallerWindow(QtWidgets.QMainWindow):
                     target = str(find_python_executable())
                     args = f'"{install_path / "mtk_gui.py"}"'
     
-                # We use double-backslashes to keep PowerShell from getting confused by spaces
+                sp = str(shortcut_path).replace("\\", "\\\\")
+                tp = str(target).replace("\\", "\\\\")
+                ap = args.replace("\\", "\\\\")
+                wd = str(work_dir).replace("\\", "\\\\")
+                ip = str(icon_path).replace("\\", "\\\\")
+                
                 ps_cmd = f"""
                 $ws = New-Object -ComObject WScript.Shell;
-                $s = $ws.CreateShortcut("{str(shortcut_path).replace('\\', '\\\\')}");
-                $s.TargetPath = "{target.replace('\\', '\\\\')}";
-                $s.Arguments = '{args.replace('\\', '\\\\')}';
-                $s.WorkingDirectory = "{str(work_dir).replace('\\', '\\\\')}";
-                $s.IconLocation = "{str(icon_path).replace('\\', '\\\\')}";
+                $s = $ws.CreateShortcut("{sp}");
+                $s.TargetPath = "{tp}";
+                $s.Arguments = '{ap}';
+                $s.WorkingDirectory = "{wd}";
+                $s.IconLocation = "{ip}";
                 $s.Save();
                 """
+                
     
                 subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True)
                 
