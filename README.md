@@ -9,9 +9,15 @@ MTKClient is the work of [bkerler](https://github.com/bkerler) and all of its co
 
 # Usage
 
-This is a GUI where you just click "Start Installation" and wait. If you face any errors, copy the debug log (or just get the .log file from &TEMP&) and create an issue here. Do NOT create an issue on the MTKClient repository.
+This is a GUI where you just click "Start Installation" and wait. If something goes wrong, the logs will show it.
 
 <img width="982" height="792" alt="mtkclient_installer_windows_giTSWjd6PB" src="https://github.com/user-attachments/assets/a7274e90-1996-4195-bb04-7df5a24a67ec" />
+
+# Troubleshooting
+
+UsbDk may not properly work right after the installation. If MTKClient doesn't see your device after a successful installation, try rebooting your system. 
+
+If you face any installer-related errors, copy the debug log (or just get the .log file from &TEMP&) and create an issue here. Do NOT create an issue on the MTKClient repository.
 
 # Donations
 
