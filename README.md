@@ -3,9 +3,9 @@
 <img width="256" height="256" alt="logo_512" src="https://github.com/user-attachments/assets/c1cfa62d-f3d1-4527-a90e-253ea466d2fb" />
 
 # MTKClient Windows Installer
-Fully automated installer for mtkclient on Windows built with Python. Automatically installs all required dependancies for MTKClient [based on the official guide.](https://github.com/bkerler/mtkclient/blob/main/README-WINDOWS.md)
+Fully automated installer for mtkclient on Windows built with Python. Automatically installs all required dependencies for MTKClient [based on the official guide.](https://github.com/bkerler/mtkclient/blob/main/README-WINDOWS.md)
 
-MTKClient is the work of [bkerler]([url](https://github.com/bkerler)) and all of its contributors and is licensed under GPL V3.0. This tool was built after bkerler's approval, including the usage of the installer icon.
+MTKClient is the work of [bkerler]((https://github.com/bkerler) and all of its contributors and is licensed under GNU GPL v3. This tool was built after bkerler's approval, including the usage of the installer icon.
 
 # Usage
 
