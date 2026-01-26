@@ -23,34 +23,51 @@ jobs:
           python-version: '3.11'
 
       - name: Install build dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller==5.13.0 PyQt6
 
-      - name: Prepare resource folder
-        # ensure res/ exists in the workspace; if your resources are in a different path,
-        # copy/move them here or update --add-data below accordingly.
+      - name: Prepare resource folder (verify)
+        shell: pwsh
         run: |
-          ls -la
-          echo "Expecting ./res/icon.ico and any resource files inside ./res/"
+          Write-Host "Workspace contents:"
+          Get-ChildItem -Force
+          Write-Host "Expecting ./res/icon.ico and any resource files inside ./res/"
+          if (-not (Test-Path -Path "./res/icon.ico")) {
+            Write-Warning "res/icon.ico not found in repository workspace."
+            # Do not exit here; fail later if missing during build.
+          } else {
+            Write-Host "res/icon.ico exists."
+          }
 
       - name: Build Windows executable with PyInstaller
+        shell: pwsh
+        env:
+          DIST_NAME: mtkclient_installer_windows.exe
         run: |
-          set DIST_NAME=mtkclient_installer_windows.exe
-          REM PyInstaller flags:
-          REM --onefile : single EXE
-          REM --uac-admin : request admin elevation on start
-          REM --hide-console hide-early : hide console early
-          REM -i res/icon.ico : use repo icon
-          REM --add-data "res;res" : bundle res/ into the exe (Windows path separator ;)
-          pyinstaller --onefile --uac-admin --hide-console hide-early -i res/icon.ico --add-data "res;res" --clean --name mtkclient_installer mtkclient_installer.py
-          IF ERRORLEVEL 1 (
-            echo "PyInstaller build failed"
-            exit /b 1
-          )
-          mkdir -p dist
-          move /Y "dist\mtkclient_installer.exe" "dist\%DIST_NAME%"
-          echo "Built: dist\%DIST_NAME%"
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Starting PyInstaller build..."
+          # Ensure dist folder removed from previous runs
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue dist, build, *.spec
+
+          # PyInstaller invocation:
+          # --onefile            -> single EXE
+          # --uac-admin          -> request admin elevation on start
+          # --hide-console hide-early -> hide console early
+          # -i res/icon.ico      -> icon file inside repo
+          # --add-data 'res;res' -> bundle res/ into exe (Windows uses ';' separator)
+          pyinstaller --onefile --uac-admin --hide-console hide-early -i 'res/icon.ico' --add-data 'res;res' --clean --name mtkclient_installer mtkclient_installer.py
+
+          if (-not (Test-Path -Path "dist\mtkclient_installer.exe")) {
+            Write-Error "PyInstaller build failed: dist\mtkclient_installer.exe not created"
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Move-Item -Force -Path 'dist\mtkclient_installer.exe' -Destination "dist\$env:DIST_NAME"
+
+          Write-Host "Built: dist\$env:DIST_NAME"
 
       - name: Create GitHub Release
         id: create_release
