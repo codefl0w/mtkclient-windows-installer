@@ -19,7 +19,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / "mtkclient_installer_Test_Build_250120261831.log"
+LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / "mtkclient_installer.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
 TIMEOUT_DOWNLOAD = 60 * 20
