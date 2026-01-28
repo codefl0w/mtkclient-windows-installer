@@ -19,7 +19,8 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / "mtkclient_installer.log"
+VERSION = "V1.0.4"
+LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
 TIMEOUT_DOWNLOAD = 60 * 20
@@ -1173,7 +1174,7 @@ class StepListItem(QtWidgets.QWidget):
 class InstallerWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MTKClient Windows Auto-Installer by fl0w")
+        self.setWindowTitle("MTKClient Windows Auto-Installer")
         self.resize(980, 760)
         icon_path = resource_path("res/icon.ico")
         self.setWindowIcon(QtGui.QIcon(icon_path))
@@ -1182,7 +1183,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         self._build_ui()
         try:
             with open(LOGFILE, "w", encoding="utf-8") as f:
-                f.write("=== MTKClient Installer V1 Log ===\n")
+                f.write(f"=== MTKClient Installer {VERSION} Log ===\n")
         except Exception:
             pass
         if not is_admin():
@@ -1197,7 +1198,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         layout.setSpacing(8)
 
         header = QtWidgets.QHBoxLayout()
-        title = QtWidgets.QLabel("<h2>MTKClient Installer V1</h2>")
+        title = QtWidgets.QLabel("<h2>MTKClient Installer by fl0w</h2>")
         self._admin_lbl = QtWidgets.QLabel("Checking permissions...")
         header.addWidget(title)
         header.addStretch()
@@ -1289,10 +1290,10 @@ class InstallerWindow(QtWidgets.QMainWindow):
         self.btn_cancel.clicked.connect(self.on_cancel)
 
     def show_about(self):
-        about_text = """
+        about_text = f"""
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> V1.0.3 (260120262222)<br>
+            <b>Version:</b> {VERSION} (270120262308)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
@@ -1309,7 +1310,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         <ul style="margin-top: 5px;">
             <li>
                 <b>MTKClient</b> — Created by bkerler<br>
-                Licensed under the GNU General Public License V3.0(GPL-3.0)<br>
+                Licensed under the GNU General Public License V3.0 (GPL-3.0)<br>
                 <a href="https://github.com/bkerler/mtkclient">
                     https://github.com/bkerler/mtkclient
                 </a>
@@ -1518,7 +1519,6 @@ class InstallerWindow(QtWidgets.QMainWindow):
     def _create_desktop_shortcut(self, install_path: Path):
             try:
                 # 1. Some registry magic to find the desktop directory since OneDrive can break things. Thanks Macroslop
-                import winreg
                 try:
                     key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
                     desktop_raw, _ = winreg.QueryValueEx(key, "Desktop")
@@ -1541,11 +1541,11 @@ class InstallerWindow(QtWidgets.QMainWindow):
                     target = str(find_python_executable())
                     args = f'"{install_path / "mtk_gui.py"}"'
     
-                sp = str(shortcut_path).replace("\\", "\\\\")
-                tp = str(target).replace("\\", "\\\\")
-                ap = args.replace("\\", "\\\\")
-                wd = str(work_dir).replace("\\", "\\\\")
-                ip = str(icon_path).replace("\\", "\\\\")
+                sp = str(shortcut_path).replace("\\", "\\\\")  #
+                tp = str(target).replace("\\", "\\\\")         #
+                ap = args.replace("\\", "\\\\")                # helpers for ps_cmd below since Python does not allow backlashes inside f"""
+                wd = str(work_dir).replace("\\", "\\\\")       #
+                ip = str(icon_path).replace("\\", "\\\\")      #
                 
                 ps_cmd = f"""
                 $ws = New-Object -ComObject WScript.Shell;
