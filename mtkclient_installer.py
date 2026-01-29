@@ -19,7 +19,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-VERSION = "V1.0.4"
+VERSION = "V1.1.0"
 LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
@@ -458,28 +458,19 @@ class InstallerWorker(QtCore.QThread):
         self.log_summary.emit("winget not found. Installing required dependencies...\n")
         temp_dir = Path(os.getenv("TEMP") or tempfile.gettempdir())
         
+
         self.log_summary.emit("Step 1/3: Installing VCLibs dependency...\n")
         vclibs_url = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
         vclibs = temp_dir / "Microsoft.VCLibs.x64.14.00.Desktop.appx"
         
-        vclibs_url_q = _ps_single_quote_escape(vclibs_url)
-        vclibs_q = _ps_single_quote_escape(str(vclibs))
-        
         def attempt_vclibs_download():
-            ps_script = f"Invoke-WebRequest -Uri '{vclibs_url_q}' -OutFile '{vclibs_q}' -UseBasicParsing"
-            encoded_ps = _ps_encode_command(ps_script)
-            res = self._run_proc(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
-                None, timeout=TIMEOUT_DOWNLOAD
-            )
-            if res.exitcode == 0 and vclibs.exists():
-                return True, "Downloaded"
-            return False, f"Exit {res.exitcode}"
+            return self._download_with_progress(vclibs_url, vclibs, timeout=TIMEOUT_DOWNLOAD)
         
         success, msg = _download_with_retry(attempt_vclibs_download, max_attempts=3, base_delay=1.5)
         
         if success:
             self.log_summary.emit(f"VCLibs downloaded ({vclibs.stat().st_size / 1024:.0f} KB)\n")
+            vclibs_q = _ps_single_quote_escape(str(vclibs))
             ps_script = f"Add-AppxPackage -Path '{vclibs_q}' -ErrorAction SilentlyContinue"
             encoded_ps = _ps_encode_command(ps_script)
             res_install = self._run_proc(
@@ -495,30 +486,21 @@ class InstallerWorker(QtCore.QThread):
             except:
                 pass
         else:
-            self.log_summary.emit(f"VCLibs download failed after retries: {msg} (may already be present, continuing)\n")
+            self.log_summary.emit(f"VCLibs download failed: {msg} (may already be present, continuing)\n")
         
+
         self.log_summary.emit("Step 2/3: Installing UI.Xaml dependency...\n")
         xaml_url = "https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx"
         xaml = temp_dir / "Microsoft.UI.Xaml.2.8.x64.appx"
         
-        xaml_url_q = _ps_single_quote_escape(xaml_url)
-        xaml_q = _ps_single_quote_escape(str(xaml))
-        
         def attempt_xaml_download():
-            ps_script = f"Invoke-WebRequest -Uri '{xaml_url_q}' -OutFile '{xaml_q}' -UseBasicParsing"
-            encoded_ps = _ps_encode_command(ps_script)
-            res = self._run_proc(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
-                None, timeout=TIMEOUT_DOWNLOAD
-            )
-            if res.exitcode == 0 and xaml.exists():
-                return True, "Downloaded"
-            return False, f"Exit {res.exitcode}"
+            return self._download_with_progress(xaml_url, xaml, timeout=TIMEOUT_DOWNLOAD)
         
         success, msg = _download_with_retry(attempt_xaml_download, max_attempts=3, base_delay=1.5)
         
         if success:
             self.log_summary.emit(f"UI.Xaml downloaded ({xaml.stat().st_size / 1024:.0f} KB)\n")
+            xaml_q = _ps_single_quote_escape(str(xaml))
             ps_script = f"Add-AppxPackage -Path '{xaml_q}' -ErrorAction SilentlyContinue"
             encoded_ps = _ps_encode_command(ps_script)
             res_install = self._run_proc(
@@ -534,82 +516,134 @@ class InstallerWorker(QtCore.QThread):
             except:
                 pass
         else:
-            self.log_summary.emit(f"UI.Xaml download failed after retries: {msg} (may already be present, continuing)\n")
+            self.log_summary.emit(f"UI.Xaml download failed: {msg} (may already be present, continuing)\n")
         
+
         self.log_summary.emit("Step 3/3: Installing App Installer (winget)...\n")
         msix = temp_dir / "Microsoft.DesktopAppInstaller.msixbundle"
-        url = "https://aka.ms/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
         
-        msix_q = _ps_single_quote_escape(str(msix))
-        url_q = _ps_single_quote_escape(url)
+        urls = [
+            "https://aka.ms/getwinget",
+            "https://github.com/microsoft/winget-cli/releases/download/v1.7.10861/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle",
+        ]
         
         self.log_summary.emit("Cleaning up any conflicting installations...\n")
         ps_script = "Get-AppxPackage Microsoft.DesktopAppInstaller | Remove-AppxPackage -ErrorAction SilentlyContinue"
         encoded_ps = _ps_encode_command(ps_script)
-        cleanup = self._run_proc(
+        self._run_proc(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
             None, timeout=30
         )
         
-        self.log_summary.emit(f"Downloading from {url} (up to 3 retries)...\n")
+        download_success = False
+        res2 = None
         
-        def attempt_winget_download():
-            ps_script = f"Invoke-WebRequest -Uri '{url_q}' -OutFile '{msix_q}' -UseBasicParsing"
-            encoded_ps = _ps_encode_command(ps_script)
-            res = self._run_proc(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
-                None, timeout=TIMEOUT_DOWNLOAD
-            )
-            if res.exitcode == 0 and msix.exists():
-                return True, "Downloaded"
-            return False, f"Exit {res.exitcode}"
-        
-        success, msg = _download_with_retry(attempt_winget_download, max_attempts=3, base_delay=2.0)
-        
-        if not success:
-            self.log_summary.emit(f"Download failed after all retries: {msg}\n")
-            return False, f"Failed to download winget installer: {msg}"
-        
-        if not msix.exists():
-            return False, f"Download reported success but file not found at {msix}"
-        
-        file_size = msix.stat().st_size / (1024 * 1024)
-        self.log_summary.emit(f"Downloaded {file_size:.2f} MB\n")
-        
-        self.log_summary.emit("Installing App Installer package...\n")
-        
-        for attempt in range(2):
-            ps_script = f"Add-AppxPackage -Path '{msix_q}' -ErrorAction Stop"
-            encoded_ps = _ps_encode_command(ps_script)
-            res2 = self._run_proc(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
-                None, timeout=TIMEOUT_WINGET
-            )
+        for url_idx, url in enumerate(urls):
+            self.log_summary.emit(f"Download source {url_idx + 1}/{len(urls)}: {url}\n")
             
-            self.log_summary.emit(f"Installation attempt {attempt + 1} exit code: {res2.exitcode}\n")
+            try:
+                if msix.exists():
+                    msix.unlink()
+            except:
+                pass
             
-            if res2.exitcode == 0:
-                break
-            
-            if res2.stderr:
-                self.log_summary.emit(f"Error output: {res2.stderr[:500]}\n")
+            def attempt_winget_download():
+                # Use the progress-tracking download method
+                success, msg = self._download_with_progress(url, msix, timeout=TIMEOUT_DOWNLOAD)
                 
-            if attempt == 0:
-                self.log_summary.emit("First attempt failed, retrying after cleanup...\n")
-                time.sleep(2)
+                if not success:
+                    return False, msg
+                
+                # Validate download
+                if not msix.exists():
+                    return False, "File not found after download"
+                
+                file_size_mb = msix.stat().st_size / (1024 * 1024)
+                self.log_summary.emit(f"Downloaded {file_size_mb:.2f} MB\n")
+                
+                # Safety check 
+                if file_size_mb < 100:
+                    self.log_summary.emit(f"[WARNING] File too small ({file_size_mb:.2f} MB), likely corrupted (should be ~200MB)\n")
+                    try:
+                        msix.unlink()
+                    except:
+                        pass
+                    return False, f"File too small ({file_size_mb:.2f} MB)"
+                
+                # Validate file format
+                try:
+                    with open(msix, 'rb') as f:
+                        header = f.read(4)
+                        if header[:2] != b'PK':
+                            self.log_summary.emit("[WARNING] Invalid file format (not a valid bundle)\n")
+                            try:
+                                msix.unlink()
+                            except:
+                                pass
+                            return False, "Invalid file format"
+                except Exception as e:
+                    return False, f"Cannot validate file: {e}"
+                
+                return True, "Downloaded and validated"
+            
+            success, msg = _download_with_retry(attempt_winget_download, max_attempts=3, base_delay=2.0)
+            
+            if not success:
+                self.log_summary.emit(f"Source {url_idx + 1} failed: {msg}\n")
+                continue
+            
+            # Installation attempts
+            self.log_summary.emit("Installing App Installer package...\n")
+            msix_q = _ps_single_quote_escape(str(msix))
+            
+            for attempt in range(2):
+                ps_script = f"Add-AppxPackage -Path '{msix_q}' -ErrorAction Stop"
+                encoded_ps = _ps_encode_command(ps_script)
+                res2 = self._run_proc(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded_ps],
+                    None, timeout=TIMEOUT_WINGET
+                )
+                
+                self.log_summary.emit(f"Installation attempt {attempt + 1} exit code: {res2.exitcode}\n")
+                
+                if res2.exitcode == 0:
+                    download_success = True
+                    break
+                
+                if "0x80073CF0" in (res2.stderr or "") or "0x80070570" in (res2.stderr or ""):
+                    self.log_summary.emit("[ERROR] Package corrupted, trying next source...\n")
+                    try:
+                        msix.unlink()
+                    except:
+                        pass
+                    break
+                
+                if res2.stderr:
+                    self.log_summary.emit(f"Error: {res2.stderr[:500]}\n")
+                    
+                if attempt == 0:
+                    self.log_summary.emit("Retrying after cleanup...\n")
+                    time.sleep(2)
+            
+            if download_success:
+                break
         
         try:
-            os.remove(msix)
+            if msix.exists():
+                os.remove(msix)
         except:
             pass
-            
-        if res2.exitcode != 0:
-            if "sideload" in (res2.stderr or "").lower() or "policy" in (res2.stderr or "").lower():
-                return False, "App sideloading disabled. Enable in Settings > Update & Security > For Developers."
-            if "0x80073CF3" in (res2.stderr or ""):
-                return False, "Package conflict detected. Please manually uninstall 'App Installer' from Settings > Apps, then retry."
-            return False, f"Installation failed (exit {res2.exitcode}). See output above for details."
-
+        
+        if not download_success or (res2 and res2.exitcode != 0):
+            if res2:
+                if "sideload" in (res2.stderr or "").lower() or "policy" in (res2.stderr or "").lower():
+                    return False, "Enable app sideloading in Settings > Update & Security > For Developers."
+                if "0x80073CF3" in (res2.stderr or ""):
+                    return False, "Uninstall 'App Installer' from Settings > Apps, then retry."
+                if "0x80073CF0" in (res2.stderr or "") or "0x80070570" in (res2.stderr or ""):
+                    return False, "All sources corrupted. Check disk health or download manually from https://aka.ms/getwinget"
+            return False, "All attempts failed. Try manual installation from https://aka.ms/getwinget"
+    
         self.log_summary.emit("Waiting for package registration...\n")
         time.sleep(3)
         
@@ -617,7 +651,7 @@ class InstallerWorker(QtCore.QThread):
         
         for attempt in range(3):
             if shutil.which("winget"):
-                self.log_summary.emit(f"winget found in PATH\n")
+                self.log_summary.emit("winget found in PATH\n")
                 return True, "winget installed successfully"
             if attempt < 2:
                 self.log_summary.emit(f"Waiting for PATH update (attempt {attempt + 1}/3)...\n")
@@ -1293,7 +1327,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         about_text = f"""
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> {VERSION} (270120262308)<br>
+            <b>Version:</b> {VERSION} (290120261511)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
