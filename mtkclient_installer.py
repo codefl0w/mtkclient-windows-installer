@@ -19,7 +19,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-VERSION = "V1.1.0"
+VERSION = "V1.2.0"
 LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
@@ -103,22 +103,6 @@ def resource_path(relative: str) -> str:
         return os.path.join(sys._MEIPASS, relative)
     return os.path.join(os.path.abspath("."), relative)
 
-
-def _choose_download_dest_from_headers(url: str, fallback_name: str, timeout_head: float = 8.0) -> str:
-    try:
-        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "mtkclient-installer/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout_head) as head:
-            cd = head.getheader("Content-Disposition")
-            if cd:
-                m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';]+)', cd)
-                if m:
-                    return m.group(1)
-    except Exception:
-        pass
-    
-    parsed = urllib.parse.urlparse(url)
-    name = Path(parsed.path).name
-    return name or fallback_name
 
 
 def get_user_runtime_dir(appname: str = "mtkclient") -> Path:
@@ -242,7 +226,6 @@ class InstallerWorker(QtCore.QThread):
             ("Install Git & Python 3.1x", self.step_install_git_python),
             ("Refresh Environment PATH", self.step_refresh_path),
             ("Install WinFsp and UsbDk", self.step_install_winfsp_usbdk),
-            ("Install OpenSSL 1.1.1", self.step_install_openssl),
             ("Install Visual Studio Build Tools", self.step_install_build_tools),
             ("Clone mtkclient Repo", self.step_clone_repo),
             ("Install Python Requirements", self.step_pip_install_requirements),
@@ -268,25 +251,36 @@ class InstallerWorker(QtCore.QThread):
 
         def reader(pipe, collector, prefix):
             try:
+                buffer = ""
                 while True:
-                    line = pipe.readline()
-                    if line:
-                        collector.append(line)
-                        self.log_debug.emit(prefix + line)
-                        m = PCT_RE.search(line)
-                        if m:
-                            try:
-                                pct = int(m.group(1))
-                                if 0 <= pct <= 100:
-                                    self.current_progress_changed.emit(pct)
-                            except Exception:
-                                pass
-                    else:
+                    char = pipe.read(1)
+                    if not char:
                         if proc.poll() is not None or self._stop_requested:
                             break
                         if stop_time and time.time() > stop_time:
                             break
-                        time.sleep(0.05)
+                        time.sleep(0.01)
+                        continue
+                    
+                    buffer += char
+                    
+                    # Process on newline or carriage return
+                    if char in ('\n', '\r'):
+                        if buffer.strip():
+                            line = buffer
+                            collector.append(line)
+                            self.log_debug.emit(prefix + line)
+                            
+                            # Extract percentage
+                            m = PCT_RE.search(line)
+                            if m:
+                                try:
+                                    pct = int(m.group(1))
+                                    if 0 <= pct <= 100:
+                                        self.current_progress_changed.emit(pct)
+                                except Exception:
+                                    pass
+                        buffer = ""
             except Exception:
                 pass
 
@@ -705,6 +699,7 @@ class InstallerWorker(QtCore.QThread):
                 return False, "winget not available"
     
             # Refresh sources
+
             self.log_summary.emit("Refreshing winget sources...\n")
             self._run_proc(["winget", "source", "update"], None, timeout=120)
     
@@ -755,7 +750,12 @@ class InstallerWorker(QtCore.QThread):
                 self.log_summary.emit(f"Verified Python: {new_py_ver}\n")
             else:
                 # If winget succeeded but we can't find it, it's a PATH refresh issue
-                return False, "Python installed but system PATH is not refreshed. Please reboot and try again."
+                refresh_environment_path()
+                find_python_executable() # last attempt. Won't change the result but may help with debugging
+                return False, "Python installed but isn't in PATH, please retry step or reboot."
+                
+
+                
     
             return True, "Git and Python setup successful"
 
@@ -789,101 +789,7 @@ class InstallerWorker(QtCore.QThread):
                 self.log_summary.emit(f"Warning: WinFsp install returned {res.exitcode}\n")
         return True, "WinFsp/UsbDk step completed"
 
-    def step_install_openssl(self) -> Tuple[bool, str]:
-        # Install OpenSSL 1.1.1 with multiple fallback methods
-        # Check if already installed
-        candidates = [
-            Path(r"C:\OpenSSL-Win64"),
-            Path(r"C:\Program Files\OpenSSL-Win64"),
-            Path(os.environ.get("ProgramFiles", "")) / "OpenSSL-Win64",
-        ]
-        for c in candidates:
-            if c.exists():
-                return True, f"OpenSSL found at {c}"
 
-        # Method 1: Try winget with known package IDs
-        if shutil.which("winget"):
-            self.log_summary.emit("Installing OpenSSL via winget...\n")
-            for pkg_id in ["ShiningLight.OpenSSL", "ShiningLight.OpenSSL.Light"]:
-                res = self._run_proc(
-                    ["winget", "install", "--id", pkg_id, "-e", 
-                     "--accept-package-agreements", "--accept-source-agreements"],
-                    None, timeout=TIMEOUT_WINGET
-                )
-                if res.exitcode in [0, 3010]:
-                    if res.exitcode == 3010:
-                        self._needs_reboot = True
-                    return True, f"OpenSSL installed via winget ({pkg_id})"
-            
-            # Method 2: Search winget for OpenSSL packages
-            self.log_debug.emit(timestamped("[OPENSSL] Searching winget catalog...\n"))
-            search = self._run_proc(["winget", "search", "openssl"], None, timeout=60)
-            found_ids = set()
-            for line in (search.stdout or "").splitlines():
-                for token in line.strip().split()[:3]:
-                    if "." in token and "openssl" in token.lower() and len(token) > 4:
-                        found_ids.add(token)
-            
-            for pkg_id in found_ids:
-                self.log_summary.emit(f"Trying: {pkg_id}\n")
-                res = self._run_proc(
-                    ["winget", "install", "--id", pkg_id, "-e",
-                     "--accept-package-agreements", "--accept-source-agreements"],
-                    None, timeout=TIMEOUT_WINGET
-                )
-                if res.exitcode in [0, 3010]:
-                    if res.exitcode == 3010:
-                        self._needs_reboot = True
-                    return True, f"OpenSSL installed via winget ({pkg_id})"
-
-        # Method 3: Direct download fallback
-        self.log_summary.emit("Attempting direct download...\n")
-        urls = [
-            "https://slproweb.com/download/Win64OpenSSL-1_1_1u.exe",
-            "https://slproweb.com/download/Win64OpenSSL-1_1_1u-x64.exe",
-            "https://sourceforge.net/projects/openssl-for-windows/files/latest/download",
-        ]
-        
-        tempdir = Path(os.getenv("TEMP") or tempfile.gettempdir())
-        for url in urls:
-            # Get proper filename from headers and validate
-            filename = _choose_download_dest_from_headers(url, "Win64OpenSSL-installer.exe")
-            dest = tempdir / filename
-            
-            # Retry wrapper for this specific URL
-            def attempt_download():
-                return self._download_with_progress(url, dest, timeout=TIMEOUT_DOWNLOAD)
-            
-            self.log_summary.emit(f"Attempting download from {url} (up to 3 retries)...\n")
-            success, msg = _download_with_retry(attempt_download, max_attempts=3, base_delay=2.0)
-            
-            if not success:
-                self.log_summary.emit(f"All download attempts failed for {url}: {msg}\n")
-                continue
-            
-            # ensure we actually downloaded an .exe/.msi
-            if dest.suffix.lower() not in (".exe", ".msi"):
-                self.log_debug.emit(f"[OPENSSL] downloaded file {dest} is not an executable; removing and skipping.\n")
-                try:
-                    dest.unlink()
-                except Exception:
-                    pass
-                continue
-            
-            # Try installation with silent flags
-            for flags in [["/verysilent", "/sp-", "/norestart"], ["/S"]]:
-                res = self._run_proc([str(dest)] + flags, None, timeout=TIMEOUT_DOWNLOAD)
-                try:
-                    dest.unlink()
-                except:
-                    pass
-                
-                if res.exitcode in [0, 3010]:
-                    if res.exitcode == 3010:
-                        self._needs_reboot = True
-                    return True, "OpenSSL installed via direct download"
-            
-        return False, "All OpenSSL installation methods failed. Please install manually from slproweb.com"
 
     def step_install_build_tools(self) -> Tuple[bool, str]:
         # check vcvars64.bat presence
@@ -919,7 +825,10 @@ class InstallerWorker(QtCore.QThread):
     
         if not shutil.which("winget"):
             return False, "winget not present"
-    
+
+        self.log_summary.emit("Ensuring Winget health...\n")
+        subprocess.run(["winget", "source", "reset", "--force"], capture_output=True)
+        subprocess.run(["winget", "source", "update"], capture_output=True)    
         self.log_summary.emit(
             "Installing Visual Studio Build Tools (Desktop C++ workload).\n"
         )
@@ -1085,21 +994,12 @@ class InstallerWorker(QtCore.QThread):
             None, timeout=300
         )
         
-        # Configure OpenSSL environment for compilation
-        env = os.environ.copy()
-        for openssl_dir in [r"C:\OpenSSL-Win64", r"C:\Program Files\OpenSSL-Win64"]:
-            if Path(openssl_dir).exists():
-                env["INCLUDE"] = env.get("INCLUDE", "") + ";" + os.path.join(openssl_dir, "include")
-                env["LIB"] = env.get("LIB", "") + ";" + os.path.join(openssl_dir, "lib")
-                env["PATH"] = env.get("PATH", "") + ";" + os.path.join(openssl_dir, "bin")
-                self.log_summary.emit(f"Using OpenSSL from: {openssl_dir}\n")
-                break
         
         # Install requirements
         self.log_summary.emit("Installing Python packages (this may take several minutes)...\n")
         res = self._run_proc(
             [py_exec, "-m", "pip", "install", "-r", str(reqs)],
-            str(reqs.parent), env=env, timeout=PIP_TIMEOUT
+            str(reqs.parent), env=None, timeout=PIP_TIMEOUT
         )
         
         if res.exitcode == 0:
@@ -1327,7 +1227,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         about_text = f"""
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> {VERSION} (290120261511)<br>
+            <b>Version:</b> {VERSION} (0606220262110)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
@@ -1351,7 +1251,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
             </li>
             <li style="margin-top: 8px;">
                 <b>Other Components:</b><br>
-                Git, Python, OpenSSL, Visual Studio Build Tools, WinFsp, and UsbDk
+                Git, Python, Visual Studio Build Tools, WinFsp, and UsbDk
                 are trademarks and products of their respective owners and are
                 distributed under their own licenses.
             </li>
