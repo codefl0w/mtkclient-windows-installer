@@ -11,6 +11,7 @@ MTKClient is the work of [bkerler](https://github.com/bkerler) and all of its co
 
 This is a GUI where you just click "Start Installation" and wait. If something goes wrong, the logs will show it.
 
+<img width="980" height="760" alt="mtkclient_installer_WCh2kYWo3c" src="https://github.com/user-attachments/assets/38c21580-157a-4118-95de-d1a6180c5941" />
 
 
 # Troubleshooting
