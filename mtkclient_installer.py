@@ -11,7 +11,6 @@ import winreg
 import tempfile
 import re
 import urllib.request
-import urllib.parse
 import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +18,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-VERSION = "V1.2.0"
+VERSION = "V1.2.1"
 LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
@@ -689,6 +688,19 @@ class InstallerWorker(QtCore.QThread):
             py_ver_raw = get_ver([str(py_exec), "--version"]) if py_exec else None
             # Verify it's not a Windows Store stub
             py_ok = py_ver_raw and "Python 3" in py_ver_raw
+
+            if py_ok:
+                try:
+                # py_ver_raw is usually "Python 3.15.x"
+                    ver_num = py_ver_raw.split(" ")[1] 
+                    minor_ver = int(ver_num.split(".")[1])
+                
+                    if minor_ver >= 14:
+                        return False, (
+                            f"Detected installed Python {ver_num}. Dependencies like scrypt will throw build errors on >3.13 and MTKClient won't work. Please uninstall the current Python version and retry the step to install a compatible version."
+                        )
+                except (IndexError, ValueError):
+                    self.log_summary.emit("Warning: Could not parse Python version string.\n")
     
             if git_ver and py_ok:
                 self.log_summary.emit(f"Found existing Git: {git_ver}\n")
@@ -974,7 +986,6 @@ class InstallerWorker(QtCore.QThread):
         return True, "Repository cloned and configured with proper permissions"
 
     def step_pip_install_requirements(self) -> Tuple[bool, str]:
-        # Install Python dependencies for MTKClient
 
         # Guard for empty Python executable
         py_exec = find_python_executable()
@@ -1227,7 +1238,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         about_text = f"""
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> {VERSION} (0606220262110)<br>
+            <b>Version:</b> {VERSION} (130220260203)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
