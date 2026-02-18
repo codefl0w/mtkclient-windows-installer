@@ -691,7 +691,7 @@ class InstallerWorker(QtCore.QThread):
 
             if py_ok:
                 try:
-                # py_ver_raw is usually "Python 3.15.x"
+                # py_ver_raw is usually "Python 3.xx.x"
                     ver_num = py_ver_raw.split(" ")[1] 
                     minor_ver = int(ver_num.split(".")[1])
                 
