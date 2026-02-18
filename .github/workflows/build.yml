@@ -28,19 +28,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller==6.14.1 PyQt6
 
-      - name: Prepare resource folder (verify)
-        shell: pwsh
-        run: |
-          Write-Host "Workspace contents:"
-          Get-ChildItem -Force
-          Write-Host "Expecting ./res/icon.ico and any resource files inside ./res/"
-          if (-not (Test-Path -Path "./res/icon.ico")) {
-            Write-Warning "res/icon.ico not found in repository workspace."
-            # Do not exit here; fail later if missing during build.
-          } else {
-            Write-Host "res/icon.ico exists."
-          }
-
       - name: Build Windows executable with PyInstaller
         shell: pwsh
         env:
