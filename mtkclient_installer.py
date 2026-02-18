@@ -18,7 +18,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-VERSION = "V1.2.1"
+VERSION = "V1.2.2"
 LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
@@ -718,7 +718,7 @@ class InstallerWorker(QtCore.QThread):
 
             if not git_ver:
                 self.log_summary.emit("Installing Git...\n")
-                res = self._run_proc(["winget", "install", "--id", "Git.Git", "-e", 
+                res = self._run_proc(["winget", "install", "--id", "Git.Git", "--source", "winget", "-e", 
                                      "--accept-package-agreements", "--accept-source-agreements"], 
                                      None, timeout=TIMEOUT_WINGET)
                 if res.exitcode not in (0, 3010):
@@ -786,7 +786,7 @@ class InstallerWorker(QtCore.QThread):
         if (Path(pf) / "UsbDk" / "UsbDkController.exe").exists():
             self.log_summary.emit("UsbDk already installed.\n")
         else:
-            res = self._run_proc(["winget", "install", "--id", "daynix.UsbDk", "-e", "--accept-package-agreements", "--accept-source-agreements"], None, timeout=TIMEOUT_WINGET)
+            res = self._run_proc(["winget", "install", "--id", "daynix.UsbDk", "--source", "winget", "-e", "--accept-package-agreements", "--accept-source-agreements"], None, timeout=TIMEOUT_WINGET)
             if res.exitcode == 3010:
                 self._needs_reboot = True
             elif res.exitcode not in [0]:
@@ -794,7 +794,7 @@ class InstallerWorker(QtCore.QThread):
         if (Path(pf) / "WinFsp").exists() or (Path(pf) / "WinFsp (x86)").exists():
             self.log_summary.emit("WinFsp already installed.\n")
         else:
-            res = self._run_proc(["winget", "install", "--id", "WinFsp.WinFsp", "-e", "--accept-package-agreements", "--accept-source-agreements"], None, timeout=TIMEOUT_WINGET)
+            res = self._run_proc(["winget", "install", "--id", "WinFsp.WinFsp", "--source", "winget", "-e", "--accept-package-agreements", "--accept-source-agreements"], None, timeout=TIMEOUT_WINGET)
             if res.exitcode == 3010:
                 self._needs_reboot = True
             elif res.exitcode not in [0]:
@@ -829,7 +829,7 @@ class InstallerWorker(QtCore.QThread):
             total, used, free = shutil.disk_usage(os.environ.get("SystemDrive", "C:"))
             if free < 3 * (1024 ** 3):
                 return False, (
-                    f"Insufficient disk space. Need ~3GB, "
+                    f"Insufficient disk space. Need ~4GB, "
                     f"have {free / (1024 ** 3):.1f} GB free."
                 )
         except Exception:
@@ -850,6 +850,8 @@ class InstallerWorker(QtCore.QThread):
             "install",
             "--id",
             "Microsoft.VisualStudio.2022.BuildTools",
+            "--source",
+            "winget",
             "-e",
             "--accept-package-agreements",
             "--accept-source-agreements",
@@ -1238,7 +1240,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         about_text = f"""
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> {VERSION} (130220260203)<br>
+            <b>Version:</b> {VERSION} (190220260052)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
@@ -1426,7 +1428,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         text_label = QtWidgets.QLabel(
             f"<b>Installation completed successfully!</b><br><br>"
             f"MTKClient has been installed to:<br><code>{install_path}</code><br><br>"
-            f"You can now launch MTKClient GUI or create a desktop shortcut.<br><br>"
+            f"You can now launch MTKClient or create a desktop shortcut for the GUI.<br><br>"
             f"<small>Log saved to: {LOGFILE}</small>"
         )
         text_label.setWordWrap(True)
