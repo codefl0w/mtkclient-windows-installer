@@ -2,7 +2,7 @@
 
 <img width="256" height="256" alt="logo_512" src="https://github.com/user-attachments/assets/c1cfa62d-f3d1-4527-a90e-253ea466d2fb" />
 
-![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_downloads_mtkclient-windows-installer.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_stars_mtkclient-windows-installer.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_workflow_mtkclient-windows-installer.svg)
+![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_downloads_mtkclient-windows-installer.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_stars_mtkclient-windows-installer.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_workflow_mtkclient-windows-installer.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/badge_license_mtkclient-windows-installer.svg)
 
 Fully automated installer for MTKClient on Windows built with Python. Automatically installs all required dependencies for MTKClient [based on the official guide.](https://github.com/bkerler/mtkclient/blob/main/README-WINDOWS.md)
 
