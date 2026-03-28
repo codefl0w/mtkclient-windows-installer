@@ -730,7 +730,7 @@ class InstallerWorker(QtCore.QThread):
                 installed = False
                 for py_id, use_exact in candidates:
                     self.log_summary.emit(f"Attempting to install {py_id}...\n")
-                    cmd = ["winget", "install", "--id", py_id]
+                    cmd = ["winget", "install", "--id", py_id, "--source", "winget"]
                     if use_exact: cmd.append("-e")
                     cmd.extend(["--scope", "machine", "--accept-package-agreements", "--accept-source-agreements",
                                 "--override", '/passive PrependPath=1 Include_test=0'])
