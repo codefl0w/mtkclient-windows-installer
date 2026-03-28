@@ -671,105 +671,126 @@ class InstallerWorker(QtCore.QThread):
         return False, "winget installed but not accessible. A system restart may be required."
 
     def step_install_git_python(self) -> Tuple[bool, str]:
-            # Install Git/Python and verify functionality 
-            
-            def get_ver(cmd_list): # version string helper
-                try:
-                    res = subprocess.run(cmd_list, capture_output=True, text=True, timeout=5)
-                    if res.returncode == 0:
-                        return res.stdout.strip()
-                except Exception: pass
-                return None
+        def get_ver(cmd_list):
+            try:
+                res = subprocess.run(cmd_list, capture_output=True, text=True, timeout=5)
+                if res.returncode == 0:
+                    return res.stdout.strip()
+            except Exception:
+                pass
+            return None
     
-            git_path = shutil.which("git")
-            git_ver = get_ver([git_path, "--version"]) if git_path else None
-            
-            py_exec = find_python_executable()
-            py_ver_raw = get_ver([str(py_exec), "--version"]) if py_exec else None
-            # Verify it's not a Windows Store stub
-            py_ok = py_ver_raw and "Python 3" in py_ver_raw
-
-            if py_ok:
-                try:
-                # py_ver_raw is usually "Python 3.xx.x"
-                    ver_num = py_ver_raw.split(" ")[1] 
-                    minor_ver = int(ver_num.split(".")[1])
+        # Check existing installations with visual indicators
+        self.log_summary.emit("Checking for existing Git installation...\n")
+        git_path = shutil.which("git")
+        git_ver = get_ver([git_path, "--version"]) if git_path else None
+        
+        if git_ver:
+            self.log_summary.emit(f"✓ Git already installed: {git_ver}\n")
+        else:
+            self.log_summary.emit("✗ Git not found\n")
+        
+        self.log_summary.emit("Checking for existing Python installation...\n")
+        py_exec = find_python_executable()
+        py_ver_raw = get_ver([str(py_exec), "--version"]) if py_exec else None
+        py_ok = py_ver_raw and "Python 3" in py_ver_raw
+    
+        if py_ok:
+            try:
+                ver_num = py_ver_raw.split(" ")[1]
+                minor_ver = int(ver_num.split(".")[1])
                 
-                    if minor_ver >= 14:
-                        return False, (
-                            f"Detected installed Python {ver_num}. Dependencies like scrypt will throw build errors on >3.13 and MTKClient won't work. Please uninstall the current Python version and retry the step to install a compatible version."
-                        )
-                except (IndexError, ValueError):
-                    self.log_summary.emit("Warning: Could not parse Python version string.\n")
-    
-            if git_ver and py_ok:
-                self.log_summary.emit(f"Found existing Git: {git_ver}\n")
-                self.log_summary.emit(f"Found active Python: {py_ver_raw}\n")
-                return True, "Git and Python already installed"
-            
-            if not shutil.which("winget"):
-                return False, "winget not available"
-    
-            # Refresh sources
-
-            self.log_summary.emit("Refreshing winget sources...\n")
-            self._run_proc(["winget", "source", "update"], None, timeout=120)
-    
-
-            if not git_ver:
-                self.log_summary.emit("Installing Git...\n")
-                res = self._run_proc(["winget", "install", "--id", "Git.Git", "--source", "winget", "-e", 
-                                     "--accept-package-agreements", "--accept-source-agreements"], 
-                                     None, timeout=TIMEOUT_WINGET)
-                if res.exitcode not in (0, 3010):
-                    return False, f"Git install failed (Exit: {res.exitcode})"
-    
-            # Install Python if missing/stubbed
-            if not py_ok:
-                candidates = [("Python.Python.3.13", True), ("Python.Python.3.12", True), ("Python.Python.3", False)]
-                installed = False
-                for py_id, use_exact in candidates:
-                    self.log_summary.emit(f"Attempting to install {py_id}...\n")
-                    cmd = ["winget", "install", "--id", py_id]
-                    if use_exact: cmd.append("-e")
-                    cmd.extend(["--scope", "machine", "--accept-package-agreements", "--accept-source-agreements",
-                                "--override", '/passive PrependPath=1 Include_test=0'])
-                    
-                    res = self._run_proc(cmd, None, timeout=TIMEOUT_WINGET)
-                    if res.exitcode in (0, 3010):
-                        if res.exitcode == 3010: self._needs_reboot = True
-                        installed = True; break
+                self.log_summary.emit(f"✓ Python found: {py_ver_raw}\n")
                 
-                if not installed:
-                    return False, "Python installation failed."
+                if minor_ver >= 14:
+                    return False, (
+                        f"Detected installed Python {ver_num}. Dependencies like scrypt will throw build errors on >3.13 and MTKClient won't work. "
+                        f"Please uninstall the current Python version and retry the step to install a compatible version."
+                    )
+            except (IndexError, ValueError):
+                self.log_summary.emit("Warning: Could not parse Python version string.\n")
+        else:
+            self.log_summary.emit("✗ Python not found or not functional\n")
     
+        if git_ver and py_ok:
+            return True, "Git and Python already installed"
+        
+        if not shutil.which("winget"):
+            return False, "winget not available"
+    
+        self.log_summary.emit("Refreshing winget sources...\n")
+        self._run_proc(["winget", "source", "update"], None, timeout=120)
+    
+        if not git_ver:
+            self.log_summary.emit("Installing Git...\n")
+            res = self._run_proc([
+                "winget", "install", 
+                "--id", "Git.Git", 
+                "--source", "winget",  
+                "-e", 
+                "--accept-package-agreements", 
+                "--accept-source-agreements"
+            ], None, timeout=TIMEOUT_WINGET)
             
-            # re-query the system to ensure the PATH was updated 
-            self.log_summary.emit("Verifying installations...\n")
+            if res.exitcode not in (0, 3010):
+                return False, f"Git install failed (Exit: {res.exitcode})"
             
-            # Verify Git again
-            new_git_path = shutil.which("git")
-            new_git_ver = get_ver([new_git_path, "--version"]) if new_git_path else None
-            if new_git_ver:
-                self.log_summary.emit(f"Verified Git: {new_git_ver}\n")
-            else:
-                self.log_summary.emit("[WARNING] Git installed but not found in PATH yet.\n")
+            if res.exitcode == 3010:
+                self._needs_reboot = True
     
-            # Verify Python again
-            new_py_exec = find_python_executable()
-            new_py_ver = get_ver([str(new_py_exec), "--version"]) if new_py_exec else None
-            if new_py_ver and "Python 3" in new_py_ver:
-                self.log_summary.emit(f"Verified Python: {new_py_ver}\n")
-            else:
-                # If winget succeeded but we can't find it, it's a PATH refresh issue
-                refresh_environment_path()
-                find_python_executable() # last attempt. Won't change the result but may help with debugging
-                return False, "Python installed but isn't in PATH, please retry step or reboot."
+        if not py_ok:
+            candidates = [
+                ("Python.Python.3.13", True), 
+                ("Python.Python.3.12", True), 
+                ("Python.Python.3", False)
+            ]
+            installed = False
+            
+            for py_id, use_exact in candidates:
+                self.log_summary.emit(f"Attempting to install {py_id}...\n")
+                cmd = [
+                    "winget", "install", 
+                    "--id", py_id,
+                    "--source", "winget" 
+                ]
+                if use_exact:
+                    cmd.append("-e")
+                cmd.extend([
+                    "--scope", "machine", 
+                    "--accept-package-agreements", 
+                    "--accept-source-agreements",
+                    "--override", '/passive PrependPath=1 Include_test=0'
+                ])
                 
-
-                
+                res = self._run_proc(cmd, None, timeout=TIMEOUT_WINGET)
+                if res.exitcode in (0, 3010):
+                    if res.exitcode == 3010:
+                        self._needs_reboot = True
+                    installed = True
+                    break
+            
+            if not installed:
+                return False, "Python installation failed."
     
-            return True, "Git and Python setup successful"
+        self.log_summary.emit("Verifying installations...\n")
+        
+        new_git_path = shutil.which("git")
+        new_git_ver = get_ver([new_git_path, "--version"]) if new_git_path else None
+        if new_git_ver:
+            self.log_summary.emit(f"✓ Verified Git: {new_git_ver}\n")
+        else:
+            self.log_summary.emit("[WARNING] Git installed but not found in PATH yet.\n")
+    
+        new_py_exec = find_python_executable()
+        new_py_ver = get_ver([str(new_py_exec), "--version"]) if new_py_exec else None
+        if new_py_ver and "Python 3" in new_py_ver:
+            self.log_summary.emit(f"✓ Verified Python: {new_py_ver}\n")
+        else:
+            refresh_environment_path()
+            find_python_executable()
+            return False, "Python installed but isn't in PATH, please retry step or reboot."
+    
+        return True, "Git and Python setup successful"
 
     def step_refresh_path(self) -> Tuple[bool, str]:
         self.log_summary.emit("Reloading environment variables...\n")
