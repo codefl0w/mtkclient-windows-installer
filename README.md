@@ -2,7 +2,11 @@
 
 <img width="256" height="256" alt="logo_512" src="https://github.com/user-attachments/assets/c1cfa62d-f3d1-4527-a90e-253ea466d2fb" />
 
-![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_downloads.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_stars.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_forks.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_license.svg) ![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_workflow_latest.svg)
+[![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_downloads.svg)](https://github.com/codefl0w/mtkclient-windows-installer/releases/latest)
+![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_stars.svg)
+![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_forks.svg)
+![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_license.svg)
+![badge](https://codefl0w.xyz/gh-boards/out/codefl0w/badge/mtkclient-windows-installer/badge_workflow_latest.svg)
 
 Fully automated installer for MTKClient on Windows built with Python. Automatically installs all required dependencies for MTKClient [based on the official guide.](https://github.com/bkerler/mtkclient/blob/main/README-WINDOWS.md)
 
