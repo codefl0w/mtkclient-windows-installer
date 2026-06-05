@@ -18,7 +18,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-VERSION = "V1.2.2"
+VERSION = "V1.3.0"
 LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
@@ -789,6 +789,8 @@ class InstallerWorker(QtCore.QThread):
             res = self._run_proc(["winget", "install", "--id", "daynix.UsbDk", "--source", "winget", "-e", "--accept-package-agreements", "--accept-source-agreements"], None, timeout=TIMEOUT_WINGET)
             if res.exitcode == 3010:
                 self._needs_reboot = True
+            elif res.exitcode == 2316632107 or "Found an existing package already installed" in (res.stdout + res.stderr):
+                self.log_debug.emit("[WINGET] UsbDk already installed/no change needed.\n")
             elif res.exitcode not in [0]:
                 self.log_summary.emit(f"Warning: UsbDk install returned {res.exitcode}\n")
         if (Path(pf) / "WinFsp").exists() or (Path(pf) / "WinFsp (x86)").exists():
@@ -797,6 +799,8 @@ class InstallerWorker(QtCore.QThread):
             res = self._run_proc(["winget", "install", "--id", "WinFsp.WinFsp", "--source", "winget", "-e", "--accept-package-agreements", "--accept-source-agreements"], None, timeout=TIMEOUT_WINGET)
             if res.exitcode == 3010:
                 self._needs_reboot = True
+            elif res.exitcode == 2316632107 or "Found an existing package already installed" in (res.stdout + res.stderr):
+                self.log_debug.emit("[WINGET] WinFsp already installed/no change needed.\n")
             elif res.exitcode not in [0]:
                 self.log_summary.emit(f"Warning: WinFsp install returned {res.exitcode}\n")
         return True, "WinFsp/UsbDk step completed"
@@ -816,13 +820,34 @@ class InstallerWorker(QtCore.QThread):
             / "Build"
             / "vcvars64.bat"
         )
-    
+        build_tools_dir = Path(pf_x86) / "Microsoft Visual Studio" / "2022" / "BuildTools"
+
         if vcvars.exists():
             self.log_summary.emit("VS Build Tools (C++ Workload) detected.\n")
+            return True, "VS Build Tools already installed"
+        if build_tools_dir.exists():
+            self.log_summary.emit("VS Build Tools directory detected.\n")
             return True, "VS Build Tools already installed"
     
         # Proceed with installation
         self.set_indeterminate.emit(True)
+        self.log_summary.emit("Checking VS Build Tools package state...\n")
+
+        if not shutil.which("winget"):
+            return False, "winget not present"
+
+        list_res = self._run_proc(
+            ["winget", "list", "--id", "Microsoft.VisualStudio.2022.BuildTools", "-e", "--accept-source-agreements"],
+            None, timeout=120
+        )
+        list_output = list_res.stdout + list_res.stderr
+        if list_res.exitcode == 0 and (
+            "Microsoft.VisualStudio.2022.BuildTools" in list_output
+            or "Visual Studio BuildTools 2022" in list_output
+        ):
+            self.log_summary.emit("VS Build Tools package detected by winget.\n")
+            return True, "VS Build Tools already installed"
+
         self.log_summary.emit("Checking disk space and VS Build Tools requirements...\n")
     
         try:
@@ -834,9 +859,6 @@ class InstallerWorker(QtCore.QThread):
                 )
         except Exception:
             self.log_summary.emit("Warning: Could not verify disk space.\n")
-    
-        if not shutil.which("winget"):
-            return False, "winget not present"
 
         self.log_summary.emit("Ensuring Winget health...\n")
         subprocess.run(["winget", "source", "reset", "--force"], capture_output=True)
@@ -859,10 +881,14 @@ class InstallerWorker(QtCore.QThread):
         ]
     
         res = self._run_proc(cmd, None, timeout=TIMEOUT_VS)
-    
+        install_output = res.stdout + res.stderr
+
         # Re-verify system state after installer exits
         if vcvars.exists():
             self.log_summary.emit("VS Build Tools detected after installer run.\n")
+            return True, "VS Build Tools already installed"
+        if build_tools_dir.exists():
+            self.log_summary.emit("VS Build Tools directory detected after installer run.\n")
             return True, "VS Build Tools already installed"
     
         # Reboot-required success
@@ -874,7 +900,7 @@ class InstallerWorker(QtCore.QThread):
             return True, "VS Build Tools installed (REBOOT REQUIRED)"
     
         # Known Visual Studio no-op / already-installed HRESULT
-        if res.exitcode == 2316632107:
+        if res.exitcode in (2316632070, 2316632107) or "Found an existing package already installed" in install_output:
             return True, "VS Build Tools already present (no changes needed)"
     
         # Zero exit but no files detected → defer to reboot
@@ -1415,7 +1441,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         # Create custom dialog that stays open
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Installation Complete")
-        dialog.setMinimumWidth(450)
+        dialog.setMinimumWidth(620)
         
         layout = QtWidgets.QVBoxLayout(dialog)
         
@@ -1428,7 +1454,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         text_label = QtWidgets.QLabel(
             f"<b>Installation completed successfully!</b><br><br>"
             f"MTKClient has been installed to:<br><code>{install_path}</code><br><br>"
-            f"You can now launch MTKClient or create a desktop shortcut for the GUI.<br><br>"
+            f"You can now launch MTKClient, add commands to PATH, or create a desktop shortcut for the GUI.<br><br>"
             f"<small>Log saved to: {LOGFILE}</small>"
         )
         text_label.setWordWrap(True)
@@ -1438,15 +1464,18 @@ class InstallerWindow(QtWidgets.QMainWindow):
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
         btn_explorer = QtWidgets.QPushButton("Show in Explorer")
+        btn_path = QtWidgets.QPushButton("Add Commands to PATH")
         btn_shortcut = QtWidgets.QPushButton("Add Desktop Shortcut")
         btn_ok = QtWidgets.QPushButton("OK")
         btn_ok.setDefault(True)
-        
+
         btn_explorer.clicked.connect(lambda: self._open_in_explorer(install_path))
+        btn_path.clicked.connect(lambda: self._add_mtkclient_to_path(install_path))
         btn_shortcut.clicked.connect(lambda: self._create_desktop_shortcut(install_path))
         btn_ok.clicked.connect(dialog.accept)
-        
+
         button_layout.addWidget(btn_explorer)
+        button_layout.addWidget(btn_path)
         button_layout.addWidget(btn_shortcut)
         button_layout.addStretch()
         button_layout.addWidget(btn_ok)
@@ -1462,7 +1491,68 @@ class InstallerWindow(QtWidgets.QMainWindow):
             self.append_summary(f"Opened {path} in Explorer\n")
         except Exception as e:
             QtWidgets.QMessageBox.warning(self, "Error", f"Failed to open Explorer: {e}")
-    
+
+    def _add_mtkclient_to_path(self, install_path: Path):
+        try:
+            missing = [p.name for p in (install_path / "mtk.bat", install_path / "mtk_gui.bat") if not p.exists()]
+            if missing:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "PATH Error",
+                    f"Missing {', '.join(missing)} in {install_path}.",
+                )
+                return
+
+            env_key = r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, env_key, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+                try:
+                    current_path, value_type = winreg.QueryValueEx(key, "Path")
+                except FileNotFoundError:
+                    current_path, value_type = "", winreg.REG_EXPAND_SZ
+
+                install_dir = str(install_path)
+                install_norm = os.path.normcase(os.path.normpath(install_dir))
+                parts = [p.strip() for p in current_path.split(";") if p.strip()]
+                already_present = any(
+                    os.path.normcase(os.path.normpath(os.path.expandvars(p))) == install_norm
+                    for p in parts
+                )
+
+                if already_present:
+                    self.append_summary(f"MTKClient commands already in system PATH: {install_path}\n")
+                    QtWidgets.QMessageBox.information(self, "PATH", "MTKClient commands are already in PATH.")
+                    return
+
+                new_path = f"{current_path.rstrip(';')};{install_dir}" if current_path else install_dir
+                if value_type not in (winreg.REG_EXPAND_SZ, winreg.REG_SZ):
+                    value_type = winreg.REG_EXPAND_SZ
+                winreg.SetValueEx(key, "Path", 0, value_type, new_path)
+
+            refresh_environment_path()
+            try:
+                result = ctypes.c_ulong()
+                ctypes.windll.user32.SendMessageTimeoutW(
+                    0xFFFF,
+                    0x001A,
+                    0,
+                    "Environment",
+                    0x0002,
+                    5000,
+                    ctypes.byref(result),
+                )
+            except Exception as e:
+                self.append_debug(f"[PATH] Environment broadcast failed: {e}\n")
+
+            self.append_summary(f"Added MTKClient commands to system PATH: {install_path}\n")
+            QtWidgets.QMessageBox.information(
+                self,
+                "PATH Updated",
+                "mtk and mtk_gui commands added to system PATH. Open a new terminal to use them.",
+            )
+        except Exception as e:
+            self.append_debug(f"[PATH] Failed: {e}\n")
+            QtWidgets.QMessageBox.warning(self, "PATH Error", f"Failed to update PATH: {e}")
+
     def _create_desktop_shortcut(self, install_path: Path):
             try:
                 # 1. Some registry magic to find the desktop directory since OneDrive can break things. Thanks Macroslop
