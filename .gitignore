@@ -2,3 +2,5 @@
 /build/
 /dist/
 /mtkclient_installer.spec
+__pycache__/
+*.py[cod]

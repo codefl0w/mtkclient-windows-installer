@@ -1,0 +1,5 @@
+# GUI
+PyQt6>=6.5.0
+
+# Build / Packaging
+pyinstaller==6.14.1

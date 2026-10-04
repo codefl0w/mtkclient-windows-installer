@@ -25,6 +25,16 @@ UsbDk may not properly work right after the installation. If MTKClient doesn't s
 
 If you face any installer-related errors, copy the debug log (or just get the .log file from &TEMP&) and create an issue here. Do NOT create an issue on the MTKClient repository.
 
+# Build
+
+```bash
+# install requirements
+python -m pip install -r requirements.txt
+
+# build
+pyinstaller --noconsole --onefile --uac-admin --add-data 'res;res' -i res/icon.ico mtkclient_installer.py
+```
+
 # Donations
 
 I'm always up for a coffee. However, please consider supporting MTKClient itself directly if you're interested in the low-level side of things. If you still have a few bucks to spare, thanks a lot for any amount.

@@ -18,7 +18,7 @@ from typing import Optional, List, Tuple, Dict
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 
-VERSION = "V1.3.0"
+VERSION = "V1.4.0"
 LOGFILE = Path(os.getenv("TEMP") or tempfile.gettempdir()) / f"mtkclient_installer_{VERSION}.log"
 TIMEOUT_WINGET = 60 * 30
 TIMEOUT_VS = 60 * 60
@@ -377,6 +377,13 @@ class InstallerWorker(QtCore.QThread):
                             pct = int(downloaded * 100 / total) if total > 0 else -1
                             if pct >= 0:
                                 self.current_progress_changed.emit(min(100, pct))
+                    if downloaded < total:
+                        self.log_debug.emit(f"[DL] Truncated download: {downloaded}/{total} bytes\n")
+                        try:
+                            dest.unlink()
+                        except Exception:
+                            pass
+                        return False, f"Download truncated ({downloaded}/{total} bytes)"
                     self.current_progress_changed.emit(100)
                     self.log_debug.emit(f"[DL] Downloaded {downloaded} bytes (expected {total})\n")
                     return True, "Downloaded"
@@ -404,6 +411,45 @@ class InstallerWorker(QtCore.QThread):
         except Exception as e:
             self.log_debug.emit(f"[DL] download failed: {e}\n")
             return False, str(e)
+
+    def _validate_package_file(
+        self,
+        file_path: Path,
+        min_size_mb: float,
+        expected_desc: str = "",
+        pkg_type: str = "bundle",
+    ) -> Tuple[bool, str]:
+        if not file_path.exists():
+            return False, "File not found after download"
+
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        self.log_summary.emit(f"Downloaded {file_size_mb:.2f} MB\n")
+
+        # Safety check
+        if file_size_mb < min_size_mb:
+            exp = f", likely corrupted (should be {expected_desc})" if expected_desc else ", likely corrupted"
+            self.log_summary.emit(f"[WARNING] File too small ({file_size_mb:.2f} MB){exp}\n")
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
+            return False, f"File too small ({file_size_mb:.2f} MB)"
+
+        # Validate file format
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(4)
+                if header[:2] != b"PK":
+                    self.log_summary.emit(f"[WARNING] Invalid file format (not a valid {pkg_type})\n")
+                    try:
+                        file_path.unlink()
+                    except Exception:
+                        pass
+                    return False, "Invalid file format"
+        except Exception as e:
+            return False, f"Cannot validate file: {e}"
+
+        return True, "Downloaded and validated"
 
     def run(self):
         total = len(self.steps)
@@ -457,12 +503,19 @@ class InstallerWorker(QtCore.QThread):
         vclibs = temp_dir / "Microsoft.VCLibs.x64.14.00.Desktop.appx"
         
         def attempt_vclibs_download():
-            return self._download_with_progress(vclibs_url, vclibs, timeout=TIMEOUT_DOWNLOAD)
+            try:
+                if vclibs.exists():
+                    vclibs.unlink()
+            except Exception:
+                pass
+            success, msg = self._download_with_progress(vclibs_url, vclibs, timeout=TIMEOUT_DOWNLOAD)
+            if not success:
+                return False, msg
+            return self._validate_package_file(vclibs, min_size_mb=4.0, expected_desc="~6MB", pkg_type="package")
         
         success, msg = _download_with_retry(attempt_vclibs_download, max_attempts=3, base_delay=1.5)
         
         if success:
-            self.log_summary.emit(f"VCLibs downloaded ({vclibs.stat().st_size / 1024:.0f} KB)\n")
             vclibs_q = _ps_single_quote_escape(str(vclibs))
             ps_script = f"Add-AppxPackage -Path '{vclibs_q}' -ErrorAction SilentlyContinue"
             encoded_ps = _ps_encode_command(ps_script)
@@ -487,12 +540,19 @@ class InstallerWorker(QtCore.QThread):
         xaml = temp_dir / "Microsoft.UI.Xaml.2.8.x64.appx"
         
         def attempt_xaml_download():
-            return self._download_with_progress(xaml_url, xaml, timeout=TIMEOUT_DOWNLOAD)
+            try:
+                if xaml.exists():
+                    xaml.unlink()
+            except Exception:
+                pass
+            success, msg = self._download_with_progress(xaml_url, xaml, timeout=TIMEOUT_DOWNLOAD)
+            if not success:
+                return False, msg
+            return self._validate_package_file(xaml, min_size_mb=3.0, expected_desc="~5MB", pkg_type="package")
         
         success, msg = _download_with_retry(attempt_xaml_download, max_attempts=3, base_delay=1.5)
         
         if success:
-            self.log_summary.emit(f"UI.Xaml downloaded ({xaml.stat().st_size / 1024:.0f} KB)\n")
             xaml_q = _ps_single_quote_escape(str(xaml))
             ps_script = f"Add-AppxPackage -Path '{xaml_q}' -ErrorAction SilentlyContinue"
             encoded_ps = _ps_encode_command(ps_script)
@@ -541,43 +601,15 @@ class InstallerWorker(QtCore.QThread):
                 pass
             
             def attempt_winget_download():
-                # Use the progress-tracking download method
+                try:
+                    if msix.exists():
+                        msix.unlink()
+                except Exception:
+                    pass
                 success, msg = self._download_with_progress(url, msix, timeout=TIMEOUT_DOWNLOAD)
-                
                 if not success:
                     return False, msg
-                
-                # Validate download
-                if not msix.exists():
-                    return False, "File not found after download"
-                
-                file_size_mb = msix.stat().st_size / (1024 * 1024)
-                self.log_summary.emit(f"Downloaded {file_size_mb:.2f} MB\n")
-                
-                # Safety check 
-                if file_size_mb < 100:
-                    self.log_summary.emit(f"[WARNING] File too small ({file_size_mb:.2f} MB), likely corrupted (should be ~200MB)\n")
-                    try:
-                        msix.unlink()
-                    except:
-                        pass
-                    return False, f"File too small ({file_size_mb:.2f} MB)"
-                
-                # Validate file format
-                try:
-                    with open(msix, 'rb') as f:
-                        header = f.read(4)
-                        if header[:2] != b'PK':
-                            self.log_summary.emit("[WARNING] Invalid file format (not a valid bundle)\n")
-                            try:
-                                msix.unlink()
-                            except:
-                                pass
-                            return False, "Invalid file format"
-                except Exception as e:
-                    return False, f"Cannot validate file: {e}"
-                
-                return True, "Downloaded and validated"
+                return self._validate_package_file(msix, min_size_mb=100.0, expected_desc="~200MB", pkg_type="bundle")
             
             success, msg = _download_with_retry(attempt_winget_download, max_attempts=3, base_delay=2.0)
             
@@ -1266,7 +1298,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         about_text = f"""
         <h3>MTKClient Windows Installer</h3>
         <p>
-            <b>Version:</b> {VERSION} (190220260052)<br>
+            <b>Version:</b> {VERSION} (041020261725)<br>
             <b>Developer:</b>
             <a href="https://github.com/codefl0w">fl0w</a>
         </p>
@@ -1282,7 +1314,7 @@ class InstallerWindow(QtWidgets.QMainWindow):
         <p style="margin-top: 15px;"><b>Credits & Licenses:</b></p>
         <ul style="margin-top: 5px;">
             <li>
-                <b>MTKClient</b> — Created by bkerler<br>
+                <b>MTKClient</b> - Created by bkerler<br>
                 Licensed under the GNU General Public License V3.0 (GPL-3.0)<br>
                 <a href="https://github.com/bkerler/mtkclient">
                     https://github.com/bkerler/mtkclient
